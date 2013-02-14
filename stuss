@@ -1,0 +1,330 @@
+#!/bin/bash
+
+###
+#
+# STUSS = STUSS The Ultimativ Sync Script
+#
+###
+
+#Default Settings
+DEFAULT_VERBOSE='FALSE'
+DEFAULT_TARGET='*'
+DEFAULT_JOB='*'
+DEFAULT_SCHEDULE='*'
+DEFAULT_RUN='none'
+DEFAULT_DEBUG=0
+
+#Commands
+CMD_FIND="/usr/bin/find"
+CMD_SSH="/usr/bin/ssh"
+CMD_AWK="/usr/bin/awk"
+CMD_CAT="/bin/cat"
+CMD_RSYNC="/usr/bin/rsync"
+
+#Commando Args
+ARG_SSH="-i /home/ajazdzewski/.ssh/spread_rsa"
+ARG_RSYNC="-avx --delete --numeric-ids --relative --delete-excluded --bwlimit=20480"
+# --verbose --progress --stats --compress
+
+#Host
+HOST_NAME="$(uname -n)"
+
+#Remotehost
+REMOTE_USER="root"
+REMOTE_HOST="localhost"
+REMOTE_FOLDER="/home/.backup/"
+
+# System
+OLDIFS="$IFS"
+
+stuss_folder() {
+echo "Backup: ${SRC} to ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_FOLDER}${HOST_NAME}/${job_name}.current${DST}" 
+echo ${CMD_RSYNC} ${ARG_RSYNC} --rsh="${CMD_SSH} ${ARG_SSH}" ${SRC} ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_FOLDER}${HOST_NAME}/${job_name}.current${DST}  
+}
+
+stuss_script() {
+echo "Backup: ${SRC} to ${REMOTE_USER}@${REMOTE_HOST} \"${CMD_CAT} ${REMOTE_FOLDER}${HOST_NAME}/${job_name}.current${DST}\"" 
+echo ${CMD_SSH} ${ARG_SSH} "${REMOTE_USER}@${REMOTE_HOST}" "mkdir -p $(dirname ${REMOTE_FOLDER}${HOST_NAME}/${job_name}.current${DST})"
+echo ${SRC} "|" ${CMD_SSH} ${ARG_SSH} "${REMOTE_USER}@${REMOTE_HOST}" "${CMD_CAT} > ${REMOTE_FOLDER}${HOST_NAME}/${job_name}.current${DST}"
+}
+
+##
+# sync:
+#	for each line in the current job do the task (first word of line)
+##
+stuss_sync() {
+while read line; do
+	IFS=" "
+	TYPE=$(echo -e $line | ${CMD_AWK} 'BEGIN { FS = "[\t]+" } ; { print $1 }')
+	SRC=$(echo -e $line | ${CMD_AWK} 'BEGIN { FS = "[\t]+" } ; { print $2 }')
+	DST=$(echo -e $line | ${CMD_AWK} 'BEGIN { FS = "[\t]+" } ; { print $3 }')
+	IFS="${OLDIFS}"
+
+	case "${TYPE}" in
+		"Folder")
+		stuss_folder
+		;;
+		"Script")
+		stuss_script
+		;;
+		*)
+		echo "WARNING: Wrong Type \"${TYPE}\", ATM only Folder and Script are supported"
+		;;
+	esac
+done < "jobs/$job"
+}
+
+stuss_delete() {
+folders=$(${CMD_SSH} ${ARG_SSH} "${REMOTE_USER}@${REMOTE_HOST}" "ls ${REMOTE_FOLDER}${HOST_NAME}/")
+folders_job=$(echo $folders | tr ' ' '\n' | egrep "^${job_name}\.[0-9]{12}\.$1" | sort -r)
+folders_count=$(echo $folders_job | tr ' ' '\n' | wc -l)
+
+if [ $folders_count -gt $keep ]; then		
+	delete=$(echo $folders_job | tr ' ' '\n' | sed -n "$((${keep}+1)),${folders_count}p")
+	
+	for del in $delete; do
+		move_from=$del
+		move_to=$(echo $del | sed -e "s/\.${1}$/.delete/g")
+		echo ${CMD_SSH} ${ARG_SSH} "${REMOTE_USER}@${REMOTE_HOST}" "mv ${REMOTE_FOLDER}${HOST_NAME}/${move_from} ${REMOTE_FOLDER}${HOST_NAME}/${move_to}"
+		echo ${CMD_SSH} ${ARG_SSH} "${REMOTE_USER}@${REMOTE_HOST}" "nohup rm -rf ${REMOTE_FOLDER}${HOST_NAME}/${move_to}"
+	done
+else
+	[ "$DEFAULT_DEBUG" -ge 3 ] && echo -e "\e[00;32mINFO\e[00m: nothing to delete, $keep versions of ${job_name} $1 should be saved"
+fi
+}
+
+stuss_move() {
+pre_schedule=$( sed -n "$(($num-1))p" < $schedule_file | awk '{print $1}')
+pre_keep=$( sed -n "$(($num-1))p" < $schedule_file | awk '{print $2}')
+
+folders=$(${CMD_SSH} ${ARG_SSH} "${REMOTE_USER}@${REMOTE_HOST}" "ls ${REMOTE_FOLDER}${HOST_NAME}/")
+folders_job=$(echo $folders | tr ' ' '\n' | egrep "^${job_name}\.[0-9]{12}\.${pre_schedule}" | sort -r)
+folders_count=$(echo $folders_job | tr ' ' '\n' | wc -l)
+
+if [ $folders_count -ge $pre_keep ]; then
+move_from=$(echo $folders_job | tr ' ' '\n' | sed -n "${pre_keep}p")
+move_to=$(echo $move_from | sed -e "s/\.${pre_schedule}$/.${1}/g")
+
+echo ${CMD_SSH} ${ARG_SSH} "${REMOTE_USER}@${REMOTE_HOST}" "mv ${REMOTE_FOLDER}${HOST_NAME}/${move_from} ${REMOTE_FOLDER}${HOST_NAME}/${move_to}"
+else
+	[ "$DEFAULT_DEBUG" -ge 3 ] && echo -e "\e[00;32mINFO\e[00m: not enough previous versions of ${job_name} $pre_schedule only $folders_count available but $pre_keep expected"
+fi
+}
+
+stuss_copy() {
+echo ${CMD_SSH} ${ARG_SSH} "${REMOTE_USER}@${REMOTE_HOST}" "cp -al ${REMOTE_FOLDER}${HOST_NAME}/${job_name}.current ${REMOTE_FOLDER}${HOST_NAME}/${job_name}.$(date +%Y%m%d%H%M).$1"
+}
+
+stussBackup() {
+if [ "${DEFAULT_JOB}" == "*" ]; then
+	runjobs="$( ls jobs/ )"
+else
+	runjobs="jobs/${DEFAULT_JOB}.list"
+fi
+
+for job in $runjobs; do
+	job_name=$( basename ${job} | awk -F'.' '{print $1}' )
+	schedule_file="schedules/${job_name}.schedule"
+	 
+	if [ ! -f "$schedule_file" ]; then
+		schedule_file="schedules/default.schedule"
+	fi
+
+	if [ -f "$schedule_file" ]; then
+		schedule=$( egrep -n "^${DEFAULT_SCHEDULE}\s+[0-9]+$" "$schedule_file" )
+		result=$?
+		if [ $result -eq 0 ]; then
+			num=$(echo $schedule | awk -F':' '{print $1}')
+			IFS=" "
+			keep=$(echo -e $schedule | awk 'BEGIN { FS = "[ \t]+" } ; {print $2}')	
+			IFS="${OLDIFS}"
+			if [ "$num" -eq "1" ]; then
+				stuss_sync
+				stuss_copy ${DEFAULT_SCHEDULE}
+				stuss_delete ${DEFAULT_SCHEDULE}
+			else
+				stuss_move ${DEFAULT_SCHEDULE}
+				stuss_delete ${DEFAULT_SCHEDULE}
+			fi
+		else
+			[ "$DEFAULT_DEBUG" -ge 3 ] && echo -e "\e[00;32mINFO\e[00m: ${DEFAULT_SCHEDULE} not found in $schedule_file"
+		fi
+	fi
+done
+}
+
+##
+# list all jobs
+##
+stussList() {
+for job in $( ls jobs/ ); do
+	job_name=$( basename ${job} | awk -F'.' '{print $1}' )
+	echo -e "job: ${job_name}"
+
+	echo -e "\ttarget: ${REMOTE_HOST}"
+	echo -e "\t\t*destination: ${REMOTE_FOLDER}${HOST_NAME}/${job_name}.current.<schedule>"
+
+	schedule_file="schedules/${job_name}.schedule"
+	schedule_name="${job_name}"
+	if [ ! -f "$schedule_file" ]; then
+		schedule_file="schedules/default.schedule"
+		schedule_name="default"
+	fi
+	echo -e "\tschedule: ${schedule_name}"
+	while read line; do
+		IFS=" "
+		TYPE=$(echo $line | ${CMD_AWK} 'BEGIN { FS = "[\t]+" } ; { print $1 }')
+		KEEP=$(echo $line | ${CMD_AWK} 'BEGIN { FS = "[\t]+" } ; { print $2 }')
+		IFS="${OLDIFS}"
+		echo -e "\t\t* ${TYPE}, keep versions: ${KEEP}"
+	done < "${schedule_file}"
+	while read line; do
+		IFS=" "
+		TYPE=$(echo $line | ${CMD_AWK} 'BEGIN { FS = "[\t]+" } ; { print $1 }')
+		SRC=$(echo $line | ${CMD_AWK} 'BEGIN { FS = "[\t]+" } ; { print $2 }')
+		DST=$(echo $line | ${CMD_AWK} 'BEGIN { FS = "[\t]+" } ; { print $3 }')
+		IFS="${OLDIFS}"
+		echo -e "\tBackup: ${TYPE}"
+		echo -e "\t\t* From: ${SRC}"
+		echo -e "\t\t* To: ${DST}"
+	done < "jobs/${job}"
+done
+}
+
+##
+# set the current Schedule to backup
+##
+stussSchedule() {
+found='FALSE'
+for schedule in $( ls schedules/*.schedule ); do
+	while read line; do
+		IFS=" "
+		TYPE=$(echo -e "$line" | ${CMD_AWK} 'BEGIN { FS = "[\t]+" } ; { print $1 }')
+		KEEP=$(echo -e "$line" | ${CMD_AWK} 'BEGIN { FS = "[\t]+" } ; { print $2 }')
+		IFS="${OLDIFS}"
+		if [ "$1" == "${TYPE}" ]; then
+			found='TRUE'
+		fi
+	done < "${schedule}"
+done
+if [ "$found" == "TRUE" ]; then
+	[ "$DEFAULT_DEBUG" -ge 3 ] && echo -e "\e[00;32mINFO\e[00m: set schedule to $1"
+	DEFAULT_SCHEDULE=$1
+else
+	echo "ERROR: unknown schedule, scheduletype not found in ./schedules/*.schedule"
+fi
+}
+
+
+##
+# select a singel job to run
+##
+stussJob() {
+found='FALSE'
+for job in $(ls jobs/*list ); do
+	if [ "jobs/$1.list" == "$job" ]; then
+		found='TRUE'
+	fi
+done
+
+if [ "$found" == "TRUE" ]; then
+	[ "$DEFAULT_DEBUG" -ge 3 ] && echo -e "\e[00;32mINFO\e[00m: set job to $1"
+	DEFAULT_JOB=$1
+else
+	echo "ERROR: unknown job, job not found in ./jobs/*.list"
+fi
+}
+
+##
+# select a singel target to backup to
+##
+stussTarget() {
+singleTarget=$1
+echo "selected target: is not implementet at the moment"
+}
+
+stussVerbose() {
+if [ "$1" == "TRUE" -o "$1" == "FALSE" ]; then
+	[ "$DEFAULT_DEBUG" -ge 3 ] && echo -e "\e[00;32mINFO\e[00m: set verbose to $1"
+	DEFAULT_VERBOSE="$1"
+else
+	echo "ERROR: unknown value for verbose allowed are TRUE or FALSE"
+fi
+}
+
+stussRun() {
+case $1 in
+list | backup | none)
+	[ "$DEFAULT_DEBUG" -ge 3 ] && echo -e "\e[00;32mINFO\e[00m: set run to $1"
+	DEFAULT_RUN="$1"
+;;
+*)
+	echo "ERROR: unknown value for run allowed are 'list', 'backup' or 'none'"
+;;
+esac
+}
+
+stussDebug() {
+if [ "$1" -ge 0 -a "$1" -lt 4 ]; then
+	DEFAULT_DEBUG="$1"
+	[ "$DEFAULT_DEBUG" -ge 3 ] && echo -e "\e[00;32mINFO\e[00m: set debug to $1"
+else
+	echo "ERROR: unknown value for debug allowed are 0,1,2 and 3'"
+fi
+}
+
+stussDuration() {
+date1=$(date +"%s")
+date2=$(date +"%s")
+diff=$(($date2-$date1))
+echo "$(($diff / 60)) minutes and $(($diff % 60)) seconds elapsed."
+}
+
+
+##
+# main() ;-)
+##
+for param in $*; do
+        option=`echo $param | awk -F'=' '{ print $1 }'`
+        value=`echo $param | awk -F'=' '{ print $2 }'`
+        case $option in
+        --schedule | -s)
+		stussSchedule $value
+        ;;
+        --job | -j)
+                stussJob $value
+        ;;
+        --run | -r)
+                stussRun $value
+        ;;
+        --target| -t)
+                stussTarget $value 
+        ;;
+        --verbose | -v)
+                stussVerbose $value
+        ;;
+        --debug | -d)
+                stussDebug $value
+        ;;
+        *)
+                echo "$0 params --run=(list|backup) --schedule=(daily|weekly|montly|...) [--target][--job]"
+        ;;
+        esac
+done
+
+case $DEFAULT_RUN in
+list)
+	stussList
+;;
+backup)
+	stussBackup
+;;
+none)
+	echo -n ""
+;;
+*)
+	echo "unknown run command"
+;;
+esac
+
+exit 0

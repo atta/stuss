@@ -1,0 +1,11 @@
+Folder	/boot/						/
+Folder	/etc/						/
+Folder	/home/						/
+Folder	/opt/						/
+Folder	/root/						/
+Folder	/srv/						/
+Folder	/usr/local/bin/					/
+Folder	/usr/local/sbin/				/
+Folder	/var/backups/ 					/
+Folder	/var/spool/cron/crontabs/ 			/
+Script	echo $(dpkg --get-selections) | gzip -cf	/script/dpkg.list.gz
