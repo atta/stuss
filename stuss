@@ -22,7 +22,7 @@ CMD_CAT="/bin/cat"
 CMD_RSYNC="/usr/bin/rsync"
 
 #Commando Args
-ARG_SSH="-i /home/ajazdzewski/.ssh/spread_rsa"
+ARG_SSH="-i /home/$USER/.ssh/$KEY"
 ARG_RSYNC="-avx --delete --numeric-ids --relative --delete-excluded --bwlimit=20480"
 # --verbose --progress --stats --compress
 
@@ -119,7 +119,7 @@ stussBackup() {
 if [ "${DEFAULT_JOB}" == "*" ]; then
 	runjobs="$( ls jobs/ )"
 else
-	runjobs="jobs/${DEFAULT_JOB}.list"
+	runjobs="jobs/${DEFAULT_JOB}.job"
 fi
 
 for job in $runjobs; do
@@ -221,8 +221,8 @@ fi
 ##
 stussJob() {
 found='FALSE'
-for job in $(ls jobs/*list ); do
-	if [ "jobs/$1.list" == "$job" ]; then
+for job in $(ls jobs/*job ); do
+	if [ "jobs/$1.job" == "$job" ]; then
 		found='TRUE'
 	fi
 done
@@ -231,7 +231,7 @@ if [ "$found" == "TRUE" ]; then
 	[ "$DEFAULT_DEBUG" -ge 3 ] && echo -e "\e[00;32mINFO\e[00m: set job to $1"
 	DEFAULT_JOB=$1
 else
-	echo "ERROR: unknown job, job not found in ./jobs/*.list"
+	echo "ERROR: unknown job, job not found in ./jobs/*.job"
 fi
 }
 
