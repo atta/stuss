@@ -11,7 +11,7 @@ DEFAULT_VERBOSE='FALSE'
 DEFAULT_TARGET='*'
 DEFAULT_JOB='*'
 DEFAULT_SCHEDULE='*'
-DEFAULT_RUN='none'
+DEFAULT_RUN='backup'
 DEFAULT_DEBUG=0
 
 #Commands
@@ -28,6 +28,7 @@ ARG_RSYNC="-ax --stats --compress --delete --numeric-ids --relative --delete-exc
 
 #Host
 HOST_NAME="$(uname -n)"
+HOST_CONGIG="/etc/stuss/"
 
 #Remotehost
 REMOTE_USER="root"
@@ -48,7 +49,7 @@ ${CMD_RSYNC} ${ARG_RSYNC} --rsh="${CMD_SSH} ${ARG_SSH}" ${SRC} ${REMOTE_USER}@${
 stuss_script() {
 [ "$DEFAULT_VERBOSE" == "TRUE" ] && echo "Backup: ${SRC} to ${REMOTE_USER}@${REMOTE_HOST} \"${CMD_CAT} ${REMOTE_FOLDER}${HOST_NAME}/${job_name}.current${DST}\"" 
 ${CMD_SSH} ${ARG_SSH} "${REMOTE_USER}@${REMOTE_HOST}" "mkdir -p $(dirname ${REMOTE_FOLDER}${HOST_NAME}/${job_name}.current${DST})"
-${SRC} | ${CMD_SSH} ${ARG_SSH} "${REMOTE_USER}@${REMOTE_HOST}" "${CMD_CAT} > ${REMOTE_FOLDER}${HOST_NAME}/${job_name}.current${DST}"
+exec ${SRC} | ${CMD_SSH} ${ARG_SSH} "${REMOTE_USER}@${REMOTE_HOST}" "${CMD_CAT} > ${REMOTE_FOLDER}${HOST_NAME}/${job_name}.current${DST}"
 }
 
 ##
@@ -74,7 +75,7 @@ while read line; do
 		[ "$DEFAULT_DEBUG" -ge 2 ] && echo -e "\e[00;33mWARNING\e[00m: Wrong Type \"${TYPE}\", ATM only Folder and Script are supported"
 		;;
 	esac
-done < "jobs/$job"
+done < "${HOST_CONGIG}jobs/${job}"
 }
 
 stuss_delete() {
@@ -116,22 +117,22 @@ fi
 }
 
 stuss_copy() {
-${CMD_SSH} ${ARG_SSH} "${REMOTE_USER}@${REMOTE_HOST}" "cp -al ${REMOTE_FOLDER}${HOST_NAME}/${job_name}.current ${REMOTE_FOLDER}${HOST_NAME}/${job_name}.$(date +%Y%m%d%H%M).$1"
+${CMD_SSH} ${ARG_SSH} "${REMOTE_USER}@${REMOTE_HOST}" "cp -al ${REMOTE_FOLDER}${HOST_NAME}/${job_name}.current ${REMOTE_FOLDER}${HOST_NAME}/${job_name}.$(date +%Y%m%d%H%M).$1 2>/dev/null"
 }
 
 stussBackup() {
 if [ "${DEFAULT_JOB}" == "*" ]; then
-	runjobs="$( ls jobs/ )"
+	runjobs="$( ls ${HOST_CONGIG}jobs/ )"
 else
-	runjobs="jobs/${DEFAULT_JOB}.job"
+	runjobs="${HOST_CONGIG}jobs/${DEFAULT_JOB}.job"
 fi
 
 for job in $runjobs; do
 	job_name=$( basename ${job} | awk -F'.' '{print $1}' )
-	schedule_file="schedules/${job_name}.schedule"
+	schedule_file="${HOST_CONGIG}schedules/${job_name}.schedule"
 	 
 	if [ ! -f "$schedule_file" ]; then
-		schedule_file="schedules/default.schedule"
+		schedule_file="${HOST_CONGIG}schedules/default.schedule"
 	fi
 
 	if [ -f "$schedule_file" ]; then
@@ -161,17 +162,17 @@ done
 # list all jobs
 ##
 stussList() {
-for job in $( ls jobs/ ); do
+for job in $( ls ${HOST_CONGIG}jobs/ ); do
 	job_name=$( basename ${job} | awk -F'.' '{print $1}' )
 	echo -e "job: ${job_name}"
 
 	echo -e "\ttarget: ${REMOTE_HOST}"
 	echo -e "\t\t*destination: ${REMOTE_FOLDER}${HOST_NAME}/${job_name}.current.<schedule>"
 
-	schedule_file="schedules/${job_name}.schedule"
+	schedule_file="${HOST_CONGIG}schedules/${job_name}.schedule"
 	schedule_name="${job_name}"
 	if [ ! -f "$schedule_file" ]; then
-		schedule_file="schedules/default.schedule"
+		schedule_file="${HOST_CONGIG}schedules/default.schedule"
 		schedule_name="default"
 	fi
 	echo -e "\tschedule: ${schedule_name}"
@@ -191,7 +192,7 @@ for job in $( ls jobs/ ); do
 		echo -e "\tBackup: ${TYPE}"
 		echo -e "\t\t* From: ${SRC}"
 		echo -e "\t\t* To: ${DST}"
-	done < "jobs/${job}"
+	done < "${HOST_CONGIG}jobs/${job}"
 done
 }
 
@@ -200,7 +201,7 @@ done
 ##
 stussSchedule() {
 found='FALSE'
-for schedule in $( ls schedules/*.schedule ); do
+for schedule in $( ls ${HOST_CONGIG}schedules/*.schedule ); do
 	while read line; do
 		IFS=" "
 		TYPE=$(echo -e "$line" | ${CMD_AWK} 'BEGIN { FS = "[\t]+" } ; { print $1 }')
@@ -226,7 +227,7 @@ fi
 stussJob() {
 found='FALSE'
 for job in $(ls jobs/*job ); do
-	if [ "jobs/$1.job" == "$job" ]; then
+	if [ "${HOST_CONGIG}jobs/$1.job" == "$job" ]; then
 		found='TRUE'
 	fi
 done

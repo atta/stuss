@@ -1,7 +1,7 @@
 Package: stuss 
 Version: 0.0.1
 Priority: optional
-Architecture: any
+Architecture: all
 Installed-Size:
 Maintainer: Ansgar Jazdzewski <ajaz@spreadshirt.net>
 Description: STUSS, The Ultimativ Sync Script
