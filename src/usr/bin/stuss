@@ -23,7 +23,7 @@ CMD_RSYNC="/usr/bin/rsync"
 
 #Commando Args
 ARG_SSH="-i /home/$USER/.ssh/$KEY"
-ARG_RSYNC="-avx --delete --numeric-ids --relative --delete-excluded --bwlimit=20480"
+ARG_RSYNC="-ax --stats --compress --delete --numeric-ids --relative --delete-excluded --bwlimit=20480"
 # --verbose --progress --stats --compress
 
 #Host
@@ -37,15 +37,18 @@ REMOTE_FOLDER="/home/.backup/"
 # System
 OLDIFS="$IFS"
 
+##
+# sync a path from src to destination
+##
 stuss_folder() {
-echo "Backup: ${SRC} to ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_FOLDER}${HOST_NAME}/${job_name}.current${DST}" 
-echo ${CMD_RSYNC} ${ARG_RSYNC} --rsh="${CMD_SSH} ${ARG_SSH}" ${SRC} ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_FOLDER}${HOST_NAME}/${job_name}.current${DST}  
+[ "$DEFAULT_VERBOSE" == "TRUE" ] && echo "Backup: ${SRC} to ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_FOLDER}${HOST_NAME}/${job_name}.current${DST}" 
+${CMD_RSYNC} ${ARG_RSYNC} --rsh="${CMD_SSH} ${ARG_SSH}" ${SRC} ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_FOLDER}${HOST_NAME}/${job_name}.current${DST}  
 }
 
 stuss_script() {
-echo "Backup: ${SRC} to ${REMOTE_USER}@${REMOTE_HOST} \"${CMD_CAT} ${REMOTE_FOLDER}${HOST_NAME}/${job_name}.current${DST}\"" 
-echo ${CMD_SSH} ${ARG_SSH} "${REMOTE_USER}@${REMOTE_HOST}" "mkdir -p $(dirname ${REMOTE_FOLDER}${HOST_NAME}/${job_name}.current${DST})"
-echo ${SRC} "|" ${CMD_SSH} ${ARG_SSH} "${REMOTE_USER}@${REMOTE_HOST}" "${CMD_CAT} > ${REMOTE_FOLDER}${HOST_NAME}/${job_name}.current${DST}"
+[ "$DEFAULT_VERBOSE" == "TRUE" ] && echo "Backup: ${SRC} to ${REMOTE_USER}@${REMOTE_HOST} \"${CMD_CAT} ${REMOTE_FOLDER}${HOST_NAME}/${job_name}.current${DST}\"" 
+${CMD_SSH} ${ARG_SSH} "${REMOTE_USER}@${REMOTE_HOST}" "mkdir -p $(dirname ${REMOTE_FOLDER}${HOST_NAME}/${job_name}.current${DST})"
+${SRC} | ${CMD_SSH} ${ARG_SSH} "${REMOTE_USER}@${REMOTE_HOST}" "${CMD_CAT} > ${REMOTE_FOLDER}${HOST_NAME}/${job_name}.current${DST}"
 }
 
 ##
@@ -68,7 +71,7 @@ while read line; do
 		stuss_script
 		;;
 		*)
-		echo "WARNING: Wrong Type \"${TYPE}\", ATM only Folder and Script are supported"
+		[ "$DEFAULT_DEBUG" -ge 2 ] && echo -e "\e[00;33mWARNING\e[00m: Wrong Type \"${TYPE}\", ATM only Folder and Script are supported"
 		;;
 	esac
 done < "jobs/$job"
@@ -85,8 +88,9 @@ if [ $folders_count -gt $keep ]; then
 	for del in $delete; do
 		move_from=$del
 		move_to=$(echo $del | sed -e "s/\.${1}$/.delete/g")
-		echo ${CMD_SSH} ${ARG_SSH} "${REMOTE_USER}@${REMOTE_HOST}" "mv ${REMOTE_FOLDER}${HOST_NAME}/${move_from} ${REMOTE_FOLDER}${HOST_NAME}/${move_to}"
-		echo ${CMD_SSH} ${ARG_SSH} "${REMOTE_USER}@${REMOTE_HOST}" "nohup rm -rf ${REMOTE_FOLDER}${HOST_NAME}/${move_to}"
+		[ "$DEFAULT_DEBUG" -ge 3 ] && echo -e "\e[00;32mINFO\e[00m: start to delete ${HOST_NAME}/${move_from}"
+		${CMD_SSH} ${ARG_SSH} "${REMOTE_USER}@${REMOTE_HOST}" "mv ${REMOTE_FOLDER}${HOST_NAME}/${move_from} ${REMOTE_FOLDER}${HOST_NAME}/${move_to}"
+		${CMD_SSH} ${ARG_SSH} "${REMOTE_USER}@${REMOTE_HOST}" "nohup rm -rf ${REMOTE_FOLDER}${HOST_NAME}/${move_to}"
 	done
 else
 	[ "$DEFAULT_DEBUG" -ge 3 ] && echo -e "\e[00;32mINFO\e[00m: nothing to delete, $keep versions of ${job_name} $1 should be saved"
@@ -105,14 +109,14 @@ if [ $folders_count -ge $pre_keep ]; then
 move_from=$(echo $folders_job | tr ' ' '\n' | sed -n "${pre_keep}p")
 move_to=$(echo $move_from | sed -e "s/\.${pre_schedule}$/.${1}/g")
 
-echo ${CMD_SSH} ${ARG_SSH} "${REMOTE_USER}@${REMOTE_HOST}" "mv ${REMOTE_FOLDER}${HOST_NAME}/${move_from} ${REMOTE_FOLDER}${HOST_NAME}/${move_to}"
+${CMD_SSH} ${ARG_SSH} "${REMOTE_USER}@${REMOTE_HOST}" "mv ${REMOTE_FOLDER}${HOST_NAME}/${move_from} ${REMOTE_FOLDER}${HOST_NAME}/${move_to}"
 else
 	[ "$DEFAULT_DEBUG" -ge 3 ] && echo -e "\e[00;32mINFO\e[00m: not enough previous versions of ${job_name} $pre_schedule only $folders_count available but $pre_keep expected"
 fi
 }
 
 stuss_copy() {
-echo ${CMD_SSH} ${ARG_SSH} "${REMOTE_USER}@${REMOTE_HOST}" "cp -al ${REMOTE_FOLDER}${HOST_NAME}/${job_name}.current ${REMOTE_FOLDER}${HOST_NAME}/${job_name}.$(date +%Y%m%d%H%M).$1"
+${CMD_SSH} ${ARG_SSH} "${REMOTE_USER}@${REMOTE_HOST}" "cp -al ${REMOTE_FOLDER}${HOST_NAME}/${job_name}.current ${REMOTE_FOLDER}${HOST_NAME}/${job_name}.$(date +%Y%m%d%H%M).$1"
 }
 
 stussBackup() {
@@ -211,7 +215,7 @@ if [ "$found" == "TRUE" ]; then
 	[ "$DEFAULT_DEBUG" -ge 3 ] && echo -e "\e[00;32mINFO\e[00m: set schedule to $1"
 	DEFAULT_SCHEDULE=$1
 else
-	echo "ERROR: unknown schedule, scheduletype not found in ./schedules/*.schedule"
+	[ "$DEFAULT_DEBUG" -ge 1 ] && echo -e "\e[00;31mERROR\e[00m: unknown schedule, scheduletype not found in ./schedules/*.schedule"
 fi
 }
 
@@ -231,7 +235,7 @@ if [ "$found" == "TRUE" ]; then
 	[ "$DEFAULT_DEBUG" -ge 3 ] && echo -e "\e[00;32mINFO\e[00m: set job to $1"
 	DEFAULT_JOB=$1
 else
-	echo "ERROR: unknown job, job not found in ./jobs/*.job"
+	[ "$DEFAULT_DEBUG" -ge 1 ] && echo -e "\e[00;31mERROR\e[00m: unknown job, job not found in ./jobs/*.job"
 fi
 }
 
@@ -240,7 +244,7 @@ fi
 ##
 stussTarget() {
 singleTarget=$1
-echo "selected target: is not implementet at the moment"
+[ "$DEFAULT_DEBUG" -ge 1 ] && echo -e "\e[00;31mERROR\e[00m:selected target: is not implementet at the moment"
 }
 
 stussVerbose() {
@@ -248,7 +252,7 @@ if [ "$1" == "TRUE" -o "$1" == "FALSE" ]; then
 	[ "$DEFAULT_DEBUG" -ge 3 ] && echo -e "\e[00;32mINFO\e[00m: set verbose to $1"
 	DEFAULT_VERBOSE="$1"
 else
-	echo "ERROR: unknown value for verbose allowed are TRUE or FALSE"
+	[ "$DEFAULT_DEBUG" -ge 1 ] && echo -e "\e[00;31mERROR\e[00m: unknown value for verbose allowed are TRUE or FALSE"
 fi
 }
 
@@ -259,7 +263,7 @@ list | backup | none)
 	DEFAULT_RUN="$1"
 ;;
 *)
-	echo "ERROR: unknown value for run allowed are 'list', 'backup' or 'none'"
+	[ "$DEFAULT_DEBUG" -ge 1 ] && echo -e "\e[00;31mERROR\e[00m: unknown value for run allowed are 'list', 'backup' or 'none'"
 ;;
 esac
 }
@@ -269,7 +273,7 @@ if [ "$1" -ge 0 -a "$1" -lt 4 ]; then
 	DEFAULT_DEBUG="$1"
 	[ "$DEFAULT_DEBUG" -ge 3 ] && echo -e "\e[00;32mINFO\e[00m: set debug to $1"
 else
-	echo "ERROR: unknown value for debug allowed are 0,1,2 and 3'"
+	[ "$DEFAULT_DEBUG" -ge 1 ] && echo -e "\e[00;31mERROR\e[00m: unknown value for debug allowed are 0,1,2 and 3'"
 fi
 }
 

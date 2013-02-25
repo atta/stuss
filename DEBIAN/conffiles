@@ -2,3 +2,4 @@
 /etc/stuss/jobs/home.job
 /etc/stuss/schedules/default.schedule
 /etc/stuss/targets/default.target
+/etc/cron.d/stuss
