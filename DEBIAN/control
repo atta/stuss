@@ -1,0 +1,11 @@
+Package: stuss 
+Version: 0.0.1
+Priority: optional
+Architecture: any
+Installed-Size:
+Maintainer: Ansgar Jazdzewski <ajaz@spreadshirt.net>
+Description: STUSS, The Ultimativ Sync Script
+ STUSS is based on, ideas from rsnapshot but goes differrent ways
+ * push data to the backup storage
+ * split backup into jobs
+ * jobs can have a own retention time and a own schedule

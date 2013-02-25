@@ -1,0 +1,4 @@
+/etc/stuss/jobs/system.job
+/etc/stuss/jobs/home.job
+/etc/stuss/schedules/default.schedule
+/etc/stuss/targets/default.target
